@@ -1,0 +1,11 @@
+# Local OAuth config — NEVER commit this file
+docs/config.js
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Dependencies (if added later)
+node_modules/
