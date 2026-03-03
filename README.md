@@ -10,10 +10,7 @@ No custom backend — all data is stored in the user's own **Google Drive**.
 
 ## Live Demo
 
-After deploying, the app is available at:
-```
-https://<your-github-username>.github.io/Adani/
-```
+🌐 **[https://asaflevi1983.github.io/Adani/](https://asaflevi1983.github.io/Adani/)**
 
 ---
 
