@@ -141,6 +141,9 @@ footer {
 .btn-primary { background: #1a73e8; color: #fff; }
 .btn-primary:hover:not(:disabled) { background: #1558c0; }
 
+.btn-secondary { background: #e8eaf6; color: #1a3660; border: 1px solid #c5cae9; }
+.btn-secondary:hover:not(:disabled) { background: #c5cae9; }
+
 .btn-google {
   background: #fff;
   color: #3c4043;

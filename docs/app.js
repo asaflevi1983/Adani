@@ -39,13 +39,13 @@ function normalizePlate(raw) {
 
 /**
  * Format plate for display: add dashes for Israeli plates.
- * e.g. "1234567" → "123-45-67"   (7 digits)
- *      "12345678" → "123-456-78"  (8 digits, newer format)
+ * e.g. "1234567" → "12-345-67"    (7 digits, format XX-XXX-XX)
+ *      "12345678" → "123-45-678"  (8 digits, format XXX-XX-XXX)
  * Falls back to raw if unexpected length.
  */
 function formatPlate(norm) {
-  if (norm.length === 7) return `${norm.slice(0,3)}-${norm.slice(3,5)}-${norm.slice(5)}`;
-  if (norm.length === 8) return `${norm.slice(0,3)}-${norm.slice(3,6)}-${norm.slice(6)}`;
+  if (norm.length === 7) return `${norm.slice(0,2)}-${norm.slice(2,5)}-${norm.slice(5)}`;
+  if (norm.length === 8) return `${norm.slice(0,3)}-${norm.slice(3,5)}-${norm.slice(5)}`;
   return norm;
 }
 
@@ -158,21 +158,28 @@ function renderHome() {
       <div class="form-group">
         <label for="plate-input">מספר לוחית רישוי</label>
         <div class="search-row">
-          <input type="text" id="plate-input" placeholder="לדוגמה: 1234567"
-                 maxlength="10" inputmode="numeric" autocomplete="off" dir="ltr">
+          <input type="text" id="plate-input" placeholder="לדוגמה: 12-345-67"
+                 maxlength="11" autocomplete="off" dir="ltr">
           <button class="btn btn-primary" id="search-btn">חפש</button>
+          <button class="btn btn-secondary" id="ocr-btn" title="זיהוי לוחית מתמונה">📷</button>
+          <input type="file" id="plate-image-input" accept="image/*" hidden>
         </div>
         <span class="field-error" id="plate-error" hidden></span>
+        <div id="ocr-status" class="status-msg" hidden></div>
       </div>
     </div>
     <p style="color:#888;font-size:0.85rem;">
-      הקלד את מספר הרישוי (ספרות בלבד) ולחץ חפש כדי לצפות בפוסטים ולפרסם הודעה.
+      הקלד את מספר הרישוי (7 או 8 ספרות, עם או בלי מקפים) ולחץ חפש,
+      או לחץ על 📷 כדי לזהות לוחית מתמונה.
     </p>
   `;
 
-  const input   = document.getElementById("plate-input");
-  const btn     = document.getElementById("search-btn");
-  const errSpan = document.getElementById("plate-error");
+  const input      = document.getElementById("plate-input");
+  const btn        = document.getElementById("search-btn");
+  const errSpan    = document.getElementById("plate-error");
+  const ocrBtn     = document.getElementById("ocr-btn");
+  const imageInput = document.getElementById("plate-image-input");
+  const ocrStatus  = document.getElementById("ocr-status");
 
   function doSearch() {
     const norm = normalizePlate(input.value);
@@ -188,6 +195,58 @@ function renderHome() {
 
   btn.addEventListener("click", doSearch);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+
+  ocrBtn.addEventListener("click", () => imageInput.click());
+
+  imageInput.addEventListener("change", async () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+    imageInput.value = ""; // reset so the same file can be re-selected
+    await runPlateOCR(file, input, errSpan, ocrStatus);
+  });
+}
+
+/**
+ * Use Tesseract.js (loaded via CDN) to recognize an Israeli license plate
+ * number from an image file and pre-fill the plate input.
+ */
+async function runPlateOCR(file, inputEl, errSpan, statusEl) {
+  if (typeof Tesseract === "undefined") {
+    statusEl.textContent = "ספריית זיהוי תמונה עדיין נטענת — נסה שוב עוד רגע.";
+    statusEl.className = "status-msg status-warning";
+    statusEl.hidden = false;
+    return;
+  }
+
+  statusEl.textContent = "מזהה לוחית רישוי מהתמונה…";
+  statusEl.className = "status-msg status-info";
+  statusEl.hidden = false;
+  errSpan.hidden = true;
+
+  try {
+    const { data: { text } } = await Tesseract.recognize(file, "eng", {
+      tessedit_char_whitelist: "0123456789",
+    });
+
+    // Extract digit sequences and look for a 7–8 digit Israeli plate.
+    // Use alternation (8|7) so an 8-digit sequence is preferred over 7.
+    const digits = text.replace(/\D/g, "");
+    const match  = digits.match(/\d{8}|\d{7}/);
+
+    if (match) {
+      inputEl.value = formatPlate(match[0]);
+      statusEl.textContent = `זוהה: ${formatPlate(match[0])} — לחץ חפש לאישור.`;
+      statusEl.className = "status-msg status-success";
+      inputEl.focus();
+    } else {
+      statusEl.textContent = "לא נמצא מספר לוחית בתמונה. נסה תמונה ברורה יותר.";
+      statusEl.className = "status-msg status-warning";
+    }
+  } catch (err) {
+    console.error("OCR error:", err);
+    statusEl.textContent = "שגיאה בזיהוי התמונה. נסה שוב.";
+    statusEl.className = "status-msg status-error";
+  }
 }
 
 // ── Vehicle Page ──────────────────────────────────────────────────────────
