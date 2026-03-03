@@ -316,10 +316,37 @@ async function renderVehicle(rawPlate) {
     }
     if (!valid) return;
 
-    formStatus.textContent = "תכונת הפרסום בפיתוח ותהיה זמינה בקרוב. תודה על עניינך!";
-    formStatus.className   = "status-msg status-info";
-    formStatus.hidden      = false;
+    const category = document.getElementById("post-category").value;
+    const issueUrl = GithubStore.buildNewIssueUrl(
+      norm,
+      category,
+      titleInput.value.trim(),
+      bodyInput.value.trim()
+    );
+    window.open(issueUrl, "_blank", "noopener,noreferrer");
+
+    formStatus.innerHTML =
+      "נפתח חלון GitHub ליצירת הפוסט. לאחר שתשלח את ה-Issue, הפוסט יופיע כאן תוך מספר דקות." +
+      ' <button type="button" id="refresh-posts-btn" class="btn btn-secondary">🔄 רענן פוסטים</button>';
+    formStatus.className = "status-msg status-success";
+    formStatus.hidden    = false;
     postForm.reset();
+  });
+
+  // Delegate refresh-button clicks so the listener is only registered once
+  formStatus.addEventListener("click", async (e) => {
+    if (!e.target.closest("#refresh-posts-btn")) return;
+    const section = document.getElementById("posts-section");
+    if (!section) return;
+    section.innerHTML = '<div class="loading-row"><span class="spinner"></span><span>טוען הודעות...</span></div>';
+    try {
+      const all = await GithubStore.fetchFromApi();
+      allVehiclePosts = GithubStore.getPostsForPlate(all, norm);
+      applyFilter();
+    } catch (err) {
+      console.error("Refresh failed:", err);
+      section.innerHTML = '<div class="status-msg status-error">שגיאה בטעינת ההודעות. נסה שוב מאוחר יותר.</div>';
+    }
   });
 
   // Filter buttons

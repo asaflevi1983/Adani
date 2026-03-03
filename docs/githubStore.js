@@ -119,18 +119,21 @@ const GithubStore = (() => {
   /**
    * Build the GitHub "New Issue" URL with prefilled title and labels for a plate.
    * The user only needs a GitHub account; no OAuth setup needed.
+   * Optional titleSummary and bodyText pre-fill the issue from the app's form.
    */
-  function buildNewIssueUrl(plate, category) {
+  function buildNewIssueUrl(plate, category, titleSummary, bodyText) {
     const cat   = category || "notice";
-    const title = `[PLATE:${plate}] `;
-    const body  =
-      `**קטגוריה:** ${cat}\n\n` +
-      `**תוכן ההודעה:**\n<!-- כתוב את ההודעה שלך כאן -->\n\n` +
-      `**מיקום (אופציונלי):**\n\n` +
-      `**תאריך (אופציונלי):**`;
+    const titlePrefix = `[PLATE:${plate}] `;
+    const fullTitle = titleSummary ? `${titlePrefix}${titleSummary}` : titlePrefix;
+    const fullBody = bodyText
+      ? `**קטגוריה:** ${cat}\n\n${bodyText}`
+      : `**קטגוריה:** ${cat}\n\n` +
+        `**תוכן ההודעה:**\n<!-- כתוב את ההודעה שלך כאן -->\n\n` +
+        `**מיקום (אופציונלי):**\n\n` +
+        `**תאריך (אופציונלי):**`;
     const params = new URLSearchParams({
-      title,
-      body,
+      title: fullTitle,
+      body:  fullBody,
       labels: `category:${cat}`,
     });
     return `https://github.com/${OWNER}/${REPO}/issues/new?${params.toString()}`;
