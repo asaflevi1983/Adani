@@ -6,10 +6,6 @@
  *   /#/                  → Home / plate search + recent posts
  *   /#/vehicle/<plate>   → Vehicle posts page
  *   /#/about             → About page
- *
- * Data comes from GitHub Issues via GithubStore (cached JSON + live API fallback).
- * No sign-in required to read posts.
- * Creating a post opens GitHub's New Issue page with prefilled content.
  */
 
 "use strict";
@@ -247,21 +243,32 @@ async function renderVehicle(rawPlate) {
     </div>
 
     <div class="card write-cta">
-      <p>יש לך מה להגיד על הרכב הזה? לחץ על הכפתור לפרסום הודעה.</p>
-      <div class="cta-row">
-        <select id="cta-category">
-          <option value="notice">הודעה</option>
-          <option value="warning">אזהרה</option>
-          <option value="compliment">מחמאה</option>
-          <option value="question">שאלה</option>
-        </select>
-        <a id="write-btn" href="#" target="_blank" rel="noopener noreferrer"
-           class="btn btn-primary">✏️ כתוב הודעה</a>
-      </div>
-      <p class="disclaimer">
-        הפרסום נעשה דרך GitHub Issues. נדרש חשבון GitHub.
-        ההודעה תופיע לאחר רענון המטמון (עד שעה).
-      </p>
+      <p>יש לך מה להגיד על הרכב הזה? מלא את הפרטים למטה ופרסם הודעה.</p>
+      <form id="post-form" class="post-form" novalidate>
+        <div class="form-group">
+          <label for="post-category">קטגוריה</label>
+          <select id="post-category" name="category" required>
+            <option value="notice">הודעה</option>
+            <option value="warning">אזהרה</option>
+            <option value="compliment">מחמאה</option>
+            <option value="question">שאלה</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="post-title">כותרת</label>
+          <input type="text" id="post-title" name="title" maxlength="120"
+                 placeholder="תיאור קצר…" required autocomplete="off">
+          <span class="field-error" id="post-title-error" hidden></span>
+        </div>
+        <div class="form-group">
+          <label for="post-body">תוכן ההודעה</label>
+          <textarea id="post-body" name="body" rows="4" maxlength="2000"
+                    placeholder="כתוב את ההודעה שלך כאן…" required></textarea>
+          <span class="field-error" id="post-body-error" hidden></span>
+        </div>
+        <div id="post-form-status" class="status-msg" hidden></div>
+        <button type="submit" class="btn btn-primary">✏️ פרסם הודעה</button>
+      </form>
     </div>
 
     <div class="filter-bar">
@@ -281,15 +288,39 @@ async function renderVehicle(rawPlate) {
     </div>
   `;
 
-  // Wire up the "Write a message" button
-  const catSelect = document.getElementById("cta-category");
-  const writeBtn  = document.getElementById("write-btn");
+  // Wire up the post form
+  const postForm       = document.getElementById("post-form");
+  const titleInput     = document.getElementById("post-title");
+  const bodyInput      = document.getElementById("post-body");
+  const titleErr       = document.getElementById("post-title-error");
+  const bodyErr        = document.getElementById("post-body-error");
+  const formStatus     = document.getElementById("post-form-status");
 
-  function updateWriteUrl() {
-    writeBtn.href = GithubStore.buildNewIssueUrl(norm, catSelect.value);
-  }
-  updateWriteUrl();
-  catSelect.addEventListener("change", updateWriteUrl);
+  postForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    let valid = true;
+
+    titleErr.hidden = true;
+    bodyErr.hidden  = true;
+    formStatus.hidden = true;
+
+    if (!titleInput.value.trim()) {
+      titleErr.textContent = "נא להזין כותרת.";
+      titleErr.hidden = false;
+      valid = false;
+    }
+    if (!bodyInput.value.trim()) {
+      bodyErr.textContent = "נא להזין תוכן הודעה.";
+      bodyErr.hidden = false;
+      valid = false;
+    }
+    if (!valid) return;
+
+    formStatus.textContent = "תכונת הפרסום בפיתוח ותהיה זמינה בקרוב. תודה על עניינך!";
+    formStatus.className   = "status-msg status-info";
+    formStatus.hidden      = false;
+    postForm.reset();
+  });
 
   // Filter buttons
   let activeFilter = "";
@@ -357,10 +388,6 @@ function renderPostCard(post) {
       </div>
       ${post.title ? `<div class="post-title">${escHtml(post.title)}</div>` : ""}
       ${bodyPreview ? `<div class="post-content">${bodyPreview}</div>` : ""}
-      <div class="post-footer">
-        <a href="${escHtml(post.url)}" target="_blank" rel="noopener noreferrer"
-           class="issue-link">פתח ב-GitHub ↗</a>
-      </div>
     </div>
   `;
 }
@@ -373,16 +400,15 @@ function renderAbout() {
     <div class="card about-section">
       <h3>מה זה?</h3>
       <p>
-        "קיר חברתי לבעלי רכב" — אפליקציה ניסיונית המאפשרת לציבור לפרסם הודעות,
+        "קיר חברתי לבעלי רכב" — אפליקציה המאפשרת לציבור לפרסם הודעות,
         אזהרות, מחמאות ושאלות על מספרי לוחיות רישוי.
       </p>
 
       <h3>איך לפרסם?</h3>
       <ol>
         <li>חפש את מספר הרישוי בעמוד הבית.</li>
-        <li>בדף הרכב לחץ על "כתוב הודעה" — ייפתח GitHub Issues עם טקסט מוכן מראש.</li>
-        <li>נדרש חשבון GitHub (חינמי). מלא את ההודעה ופרסם.</li>
-        <li>ההודעה תופיע לאחר רענון המטמון (עד שעה) או מיד בצפייה חיה.</li>
+        <li>בדף הרכב מלא את טופס ה"פרסם הודעה" ולחץ שלח.</li>
+        <li>ההודעה תופיע לאחר בדיקה ואישור.</li>
       </ol>
 
       <h3>פורמט מספר רישוי</h3>
@@ -392,19 +418,18 @@ function renderAbout() {
 
       <h3>אחסון נתונים</h3>
       <p>
-        כל ההודעות מאוחסנות כ-<strong>GitHub Issues</strong> ציבוריים במאגר זה.
-        הן גלויות לכל אחד. אין שרת מרכזי נוסף.
+        כל ההודעות מאוחסנות ומנוהלות בשרת. הן גלויות לכל אחד לאחר אישור.
       </p>
 
       <h3>מודרציה</h3>
       <p>
-        תוכן פוגעני או ספאם יוסרו על ידי סגירת ה-Issue ב-GitHub.
-        ניתן לדווח על תוכן בעייתי ישירות ב-GitHub.
+        תוכן פוגעני או ספאם יוסרו על ידי הצוות המנהל.
+        ניתן לפנות אלינו לדיווח על תוכן בעייתי.
       </p>
 
       <h3>פרטיות</h3>
       <p>
-        מספרי הרישוי וההודעות הם <strong>מידע ציבורי</strong> ב-GitHub.
+        מספרי הרישוי וההודעות הם <strong>מידע ציבורי</strong>.
         אין לפרסם מידע אישי מזהה. האפליקציה אינה אוספת נתונים.
       </p>
 
