@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>קיר חברתי לבעלי רכב</title>
+  <link rel="stylesheet" href="styles.css" />
+
+  <!--
+    Google Identity Services (GIS) — loaded before our scripts so that
+    window.google.accounts.oauth2 is available when bootstrap() runs.
+  -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header>
+      <span class="logo" id="nav-home" title="עמוד הבית">🚗 קיר חברתי לרכב</span>
+
+      <nav>
+        <a href="#/" id="nav-home-link">בית</a>
+        <a href="#/about" id="nav-about">אודות</a>
+      </nav>
+
+      <!-- Shown only when signed in -->
+      <div id="user-info" hidden>
+        <img id="user-avatar" class="avatar" src="" alt="" hidden />
+        <span id="user-name"></span>
+        <button id="signout-btn">התנתק</button>
+      </div>
+    </header>
+
+    <!-- ── Auth gate (shown before sign-in) ───────────────────── -->
+    <div id="auth-gate">
+      <h2>ברוך הבא לקיר החברתי לרכב</h2>
+      <p>
+        האפליקציה שומרת פוסטים ב-Google Drive שלך.
+        נדרשת כניסה עם חשבון Google כדי לצפות בפוסטים וליצור חדשים.
+      </p>
+      <button id="signin-btn" class="btn btn-google">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
+             alt="Google" width="18" height="18" />
+        היכנס עם Google
+      </button>
+      <!-- Status messages (errors) appear here dynamically -->
+    </div>
+
+    <!-- ── Main content (shown after sign-in) ─────────────────── -->
+    <main>
+      <div id="app-content" hidden></div>
+    </main>
+
+    <!-- ── Footer ─────────────────────────────────────────────── -->
+    <footer>
+      קיר חברתי לרכב — דמו MVP | הנתונים נשמרים ב-Google Drive שלך
+    </footer>
+
+  </div><!-- #app -->
+
+  <!--
+    Load config BEFORE driveStore and app so that window.APP_CONFIG is available.
+    The user must create docs/config.js from docs/config.example.js.
+  -->
+  <script src="config.js" onerror="window.configLoadError=true;"></script>
+  <script>
+    // If config.js failed to load, set a sentinel value so bootstrap() can
+    // display a helpful error instead of a cryptic OAuth failure.
+    if (window.configLoadError || !window.APP_CONFIG) {
+      window.APP_CONFIG = { googleClientId: "MISSING_CONFIG" };
+    }
+  </script>
+
+  <script src="driveStore.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
