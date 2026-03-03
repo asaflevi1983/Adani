@@ -1,5 +1,16 @@
 [
   {
+    "id": 7,
+    "url": "https://github.com/asaflevi1983/Adani/issues/7",
+    "plate": "12345",
+    "category": "notice",
+    "title": "",
+    "body": "**קטגוריה:** notice\n\n**תוכן ההודעה:**\n<!-- כתוב את ההודעה שלך כאן -->\n\nנוהג לא טוב \n\n**מיקום (אופציונלי):**\n\n**תאריך (אופציונלי):**",
+    "author": "asaflevi1983",
+    "authorUrl": "https://github.com/asaflevi1983",
+    "createdAt": "2026-03-03T10:26:48Z"
+  },
+  {
     "id": 6,
     "url": "https://github.com/asaflevi1983/Adani/issues/6",
     "plate": "12345",
