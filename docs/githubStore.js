@@ -73,7 +73,7 @@ const GithubStore = (() => {
   async function fetchAllPosts() {
     try {
       // Add timestamp to bust browser cache when the file updates
-      const resp = await fetch(`${CACHE_PATH}?_=${Date.now()}`);
+      const resp = await fetch(CACHE_PATH);
       if (resp.ok) {
         const data = await resp.json();
         if (Array.isArray(data)) {

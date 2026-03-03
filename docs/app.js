@@ -16,6 +16,9 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
+const RECENT_POSTS_LIMIT  = 10;
+const BODY_PREVIEW_LENGTH = 300;
+
 const CATEGORY_LABELS = {
   notice:     "הודעה",
   warning:    "אזהרה",
@@ -150,7 +153,7 @@ async function loadRecentPosts() {
   try {
     const all = await GithubStore.fetchAllPosts();
     // Show the 10 most recent posts across all plates
-    const recent = all.slice(0, 10);
+    const recent = all.slice(0, RECENT_POSTS_LIMIT);
     if (!recent.length) {
       section.innerHTML = `<div class="empty-state">אין פוסטים עדיין.</div>`;
       return;
@@ -275,7 +278,7 @@ function renderPostCard(post) {
   const catClass = CATEGORY_CLASS[post.category] || "";
   // Render body as plain text (no HTML injection)
   const bodyPreview = post.body
-    ? escHtml(post.body.slice(0, 300)) + (post.body.length > 300 ? "…" : "")
+    ? escHtml(post.body.slice(0, BODY_PREVIEW_LENGTH)) + (post.body.length > BODY_PREVIEW_LENGTH ? "…" : "")
     : "";
   return `
     <div class="post-item" data-category="${escHtml(post.category)}">

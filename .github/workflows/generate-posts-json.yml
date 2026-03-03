@@ -25,6 +25,9 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           # Fetch open issues (up to 100), save to a temp file
+          # NOTE: GitHub API returns max 100 per page. If the repo has >100 open
+          # issues with valid PLATE: prefixes, older ones will be excluded from
+          # the cache (they remain accessible via the live API fallback).
           curl -s \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
