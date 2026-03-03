@@ -300,26 +300,27 @@ async function renderVehicle(rawPlate) {
     e.preventDefault();
     let valid = true;
 
-    titleErr.hidden = true;
-    bodyErr.hidden  = true;
+    titleErr.hidden   = true;
+    bodyErr.hidden    = true;
     formStatus.hidden = true;
 
-    if (!titleInput.value.trim()) {
+    const category = document.getElementById("post-category").value;
+    const title    = titleInput.value.trim();
+    const body     = bodyInput.value.trim();
+
+    if (!title) {
       titleErr.textContent = "נא להזין כותרת.";
       titleErr.hidden = false;
       valid = false;
     }
-    if (!bodyInput.value.trim()) {
+    if (!body) {
       bodyErr.textContent = "נא להזין תוכן הודעה.";
       bodyErr.hidden = false;
       valid = false;
     }
     if (!valid) return;
 
-    formStatus.textContent = "תכונת הפרסום בפיתוח ותהיה זמינה בקרוב. תודה על עניינך!";
-    formStatus.className   = "status-msg status-info";
-    formStatus.hidden      = false;
-    postForm.reset();
+    showPostConfirmModal(norm, category, title, body, postForm, formStatus);
   });
 
   // Filter buttons
@@ -390,6 +391,63 @@ function renderPostCard(post) {
       ${bodyPreview ? `<div class="post-content">${bodyPreview}</div>` : ""}
     </div>
   `;
+}
+
+// ── Post Confirm Modal ────────────────────────────────────────────────────
+
+/**
+ * Show a confirmation modal previewing the post and offering a link to
+ * open the pre-filled GitHub New Issue page in a new tab.
+ */
+function showPostConfirmModal(plate, category, title, body, formEl, statusEl) {
+  const catLabel = CATEGORY_LABELS[category] || escHtml(category);
+  const catClass = CATEGORY_CLASS[category] || "";
+  const issueUrl = GithubStore.buildNewIssueUrl(plate, category, title, body);
+  const bodyPreview = escHtml(body.slice(0, BODY_PREVIEW_LENGTH)) +
+    (body.length > BODY_PREVIEW_LENGTH ? "…" : "");
+
+  const modal = document.createElement("div");
+  modal.className = "modal-overlay";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-modal", "true");
+  modal.innerHTML = `
+    <div class="modal-box card">
+      <h3 class="modal-title">אישור פרסום הודעה</h3>
+      <div class="post-item" data-category="${escHtml(category)}">
+        <div class="post-header">
+          <span class="category-badge ${catClass}">${catLabel}</span>
+        </div>
+        <div class="post-title">${escHtml(title)}</div>
+        <div class="post-content">${bodyPreview}</div>
+      </div>
+      <p class="modal-note">
+        ההודעה תפורסם כ-Issue ב-GitHub. לחיצה על "פרסם ב-GitHub" תפתח את דף GitHub לאישור סופי.
+        <br><small>נדרש חשבון GitHub כדי לפרסם.</small>
+      </p>
+      <div class="modal-actions">
+        <a href="${escHtml(issueUrl)}" target="_blank" rel="noopener noreferrer"
+           class="btn btn-primary" id="modal-confirm-btn">✏️ פרסם ב-GitHub</a>
+        <button class="btn btn-secondary" id="modal-cancel-btn">ביטול</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  function closeModal() { modal.remove(); }
+
+  modal.querySelector("#modal-confirm-btn").addEventListener("click", () => {
+    closeModal();
+    statusEl.textContent = "תודה! ההודעה תפורסם לאחר שתאשר אותה ב-GitHub.";
+    statusEl.className   = "status-msg status-success";
+    statusEl.hidden      = false;
+    formEl.reset();
+  });
+
+  modal.querySelector("#modal-cancel-btn").addEventListener("click", closeModal);
+
+  // Close on overlay click
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
 }
 
 // ── About Page ────────────────────────────────────────────────────────────
