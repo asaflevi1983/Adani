@@ -3,18 +3,19 @@
  * Hash-based router and UI controllers for the Car Owners Social Wall.
  *
  * Routes:
- *   /#/          → Home / search
- *   /#/vehicle/<plate>  → Vehicle posts page
- *   /#/about     → About page
+ *   /#/                  → Home / plate search + recent posts
+ *   /#/vehicle/<plate>   → Vehicle posts page
+ *   /#/about             → About page
  *
- * All pages are blocked behind the Drive auth gate.
+ * Data comes from GitHub Issues via GithubStore (cached JSON + live API fallback).
+ * No sign-in required to read posts.
+ * Creating a post opens GitHub's New Issue page with prefilled content.
  */
 
 "use strict";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────
 
-/** Display text for post categories (Hebrew). */
 const CATEGORY_LABELS = {
   notice:     "הודעה",
   warning:    "אזהרה",
@@ -22,7 +23,6 @@ const CATEGORY_LABELS = {
   question:   "שאלה",
 };
 
-/** CSS class for category badge. */
 const CATEGORY_CLASS = {
   notice:     "cat-notice",
   warning:    "cat-warning",
@@ -30,26 +30,18 @@ const CATEGORY_CLASS = {
   question:   "cat-question",
 };
 
-/**
- * Normalize plate: digits only.
- */
+// ── Helpers ───────────────────────────────────────────────────────────────
+
 function normalizePlate(raw) {
   return String(raw).replace(/\D/g, "");
 }
 
-/**
- * Format plate for display: add dashes for Israeli plates.
- * e.g. "1234567" → "123-45-67"   (7 digits)
- *      "12345678" → "123-456-78"  (8 digits, newer format)
- * Falls back to raw if unexpected length.
- */
 function formatPlate(norm) {
   if (norm.length === 7) return `${norm.slice(0,3)}-${norm.slice(3,5)}-${norm.slice(5)}`;
   if (norm.length === 8) return `${norm.slice(0,3)}-${norm.slice(3,6)}-${norm.slice(6)}`;
   return norm;
 }
 
-/** Escape HTML to prevent XSS when inserting user content. */
 function escHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -59,42 +51,21 @@ function escHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
-/** Format a timestamp (ms) as a Hebrew-locale date+time string. */
-function formatDate(ts) {
+function formatDate(isoStr) {
+  if (!isoStr) return "";
   try {
-    return new Date(ts).toLocaleString("he-IL", {
+    return new Date(isoStr).toLocaleString("he-IL", {
       day: "2-digit", month: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
   } catch {
-    return new Date(ts).toLocaleString();
+    return isoStr;
   }
 }
 
-/** Show a status message inside a container element. */
-function showStatus(container, message, type = "info") {
-  const el = container.querySelector(".status-msg") || (() => {
-    const d = document.createElement("div");
-    d.className = "status-msg";
-    container.prepend(d);
-    return d;
-  })();
-  el.textContent = message;
-  el.className = `status-msg status-${type}`;
-  el.hidden = false;
-}
-
-/** Clear any status message inside a container. */
-function clearStatus(container) {
-  const el = container.querySelector(".status-msg");
-  if (el) el.hidden = true;
-}
-
-// ── DOM references (resolved after DOMContentLoaded) ──────────────────────
-
-let elAuthGate, elAppContent, elUserName, elUserAvatar, elUserInfo, elSignoutBtn;
-
 // ── Router ────────────────────────────────────────────────────────────────
+
+const elContent = () => document.getElementById("app-content");
 
 function getRoute() {
   const hash = window.location.hash || "#/";
@@ -107,10 +78,6 @@ function navigate(path) {
 }
 
 function router() {
-  if (!DriveStore.isSignedIn()) {
-    showAuthGate();
-    return;
-  }
   const path = getRoute();
   if (path === "/" || path === "") {
     renderHome();
@@ -124,36 +91,12 @@ function router() {
   }
 }
 
-// ── Auth Gate ─────────────────────────────────────────────────────────────
-
-function showAuthGate() {
-  elAuthGate.hidden    = false;
-  elAppContent.hidden  = true;
-  elUserInfo.hidden    = true;
-}
-
-function hideAuthGate() {
-  elAuthGate.hidden   = true;
-  elAppContent.hidden = false;
-}
-
-function updateUserUI(userInfo) {
-  elUserInfo.hidden = false;
-  elUserName.textContent = userInfo?.name || userInfo?.email || "משתמש";
-  if (userInfo?.picture) {
-    elUserAvatar.src    = userInfo.picture;
-    elUserAvatar.hidden = false;
-  } else {
-    elUserAvatar.hidden = true;
-  }
-}
-
 // ── Home Page ─────────────────────────────────────────────────────────────
 
 function renderHome() {
-  hideAuthGate();
-  elAppContent.innerHTML = `
-    <h2 class="page-title">חיפוש רכב</h2>
+  const el = elContent();
+  el.innerHTML = `
+    <h2 class="page-title">חיפוש רכב לפי מספר רישוי</h2>
     <div class="card">
       <div class="form-group">
         <label for="plate-input">מספר לוחית רישוי</label>
@@ -165,9 +108,17 @@ function renderHome() {
         <span class="field-error" id="plate-error" hidden></span>
       </div>
     </div>
-    <p style="color:#888;font-size:0.85rem;">
-      הקלד את מספר הרישוי (ספרות בלבד) ולחץ חפש כדי לצפות בפוסטים ולפרסם הודעה.
+    <p class="hint-text">
+      הקלד את מספר הרישוי (ספרות בלבד) ולחץ חפש כדי לצפות בהודעות על הרכב.
     </p>
+
+    <h3 class="section-title">פוסטים אחרונים</h3>
+    <div id="recent-posts">
+      <div class="loading-row">
+        <span class="spinner"></span>
+        <span>טוען פוסטים...</span>
+      </div>
+    </div>
   `;
 
   const input   = document.getElementById("plate-input");
@@ -188,184 +139,168 @@ function renderHome() {
 
   btn.addEventListener("click", doSearch);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") doSearch(); });
+
+  // Load recent posts in the background
+  loadRecentPosts();
+}
+
+async function loadRecentPosts() {
+  const section = document.getElementById("recent-posts");
+  if (!section) return;
+  try {
+    const all = await GithubStore.fetchAllPosts();
+    // Show the 10 most recent posts across all plates
+    const recent = all.slice(0, 10);
+    if (!recent.length) {
+      section.innerHTML = `<div class="empty-state">אין פוסטים עדיין.</div>`;
+      return;
+    }
+    section.innerHTML = `<div class="post-list">${recent.map(renderPostCard).join("")}</div>`;
+  } catch (err) {
+    section.innerHTML = `<div class="status-msg status-error">${escHtml(err.message)}</div>`;
+  }
 }
 
 // ── Vehicle Page ──────────────────────────────────────────────────────────
 
 async function renderVehicle(rawPlate) {
-  hideAuthGate();
   const norm = normalizePlate(rawPlate);
   if (norm.length < 5 || norm.length > 8) {
     navigate("/");
     return;
   }
 
-  elAppContent.innerHTML = `
-    <a href="#/" class="btn" style="margin-bottom:1rem;background:#e8eaf6;color:#1a3660;">
-      ← חזרה לחיפוש
-    </a>
+  const el = elContent();
+  el.innerHTML = `
+    <a href="#/" class="btn btn-back">← חזרה לחיפוש</a>
     <div class="card">
       <div class="plate-display" dir="ltr">${escHtml(formatPlate(norm))}</div>
-      <h2 class="page-title" style="margin-bottom:0;">פוסטים על הרכב</h2>
+      <h2 class="page-title" style="margin-bottom:0;">הודעות על הרכב</h2>
     </div>
 
-    <div class="card" id="post-form-card">
-      <h3 style="margin-bottom:1rem;color:#1a3660;">פרסם הודעה חדשה</h3>
-      <div class="form-group">
-        <label for="post-category">קטגוריה</label>
-        <select id="post-category">
+    <div class="card write-cta">
+      <p>יש לך מה להגיד על הרכב הזה? לחץ על הכפתור לפרסום הודעה.</p>
+      <div class="cta-row">
+        <select id="cta-category">
           <option value="notice">הודעה</option>
           <option value="warning">אזהרה</option>
           <option value="compliment">מחמאה</option>
           <option value="question">שאלה</option>
         </select>
+        <a id="write-btn" href="#" target="_blank" rel="noopener noreferrer"
+           class="btn btn-primary">✏️ כתוב הודעה</a>
       </div>
-      <div class="form-group">
-        <label for="post-content">תוכן ההודעה</label>
-        <textarea id="post-content" placeholder="כתוב כאן..." maxlength="1000"></textarea>
-        <span class="field-error" id="content-error" hidden></span>
-      </div>
-      <button class="btn btn-primary" id="submit-post-btn">פרסם</button>
+      <p class="disclaimer">
+        הפרסום נעשה דרך GitHub Issues. נדרש חשבון GitHub.
+        ההודעה תופיע לאחר רענון המטמון (עד שעה).
+      </p>
+    </div>
+
+    <div class="filter-bar">
+      <span>סינון לפי קטגוריה:</span>
+      <button class="filter-btn active" data-cat="">הכל</button>
+      <button class="filter-btn" data-cat="notice">הודעה</button>
+      <button class="filter-btn" data-cat="warning">אזהרה</button>
+      <button class="filter-btn" data-cat="compliment">מחמאה</button>
+      <button class="filter-btn" data-cat="question">שאלה</button>
     </div>
 
     <div id="posts-section">
       <div class="loading-row">
         <span class="spinner"></span>
-        <span>טוען פוסטים...</span>
+        <span>טוען הודעות...</span>
       </div>
     </div>
   `;
 
-  // Wire up the submit form
-  const submitBtn  = document.getElementById("submit-post-btn");
-  const catSelect  = document.getElementById("post-category");
-  const contentTA  = document.getElementById("post-content");
-  const contentErr = document.getElementById("content-error");
-  const formCard   = document.getElementById("post-form-card");
+  // Wire up the "Write a message" button
+  const catSelect = document.getElementById("cta-category");
+  const writeBtn  = document.getElementById("write-btn");
 
-  submitBtn.addEventListener("click", async () => {
-    const content = contentTA.value.trim();
-    if (!content) {
-      contentErr.textContent = "נא להזין תוכן להודעה.";
-      contentErr.hidden = false;
-      contentTA.focus();
-      return;
-    }
-    contentErr.hidden = true;
+  function updateWriteUrl() {
+    writeBtn.href = GithubStore.buildNewIssueUrl(norm, catSelect.value);
+  }
+  updateWriteUrl();
+  catSelect.addEventListener("change", updateWriteUrl);
 
-    // Disable while saving
-    submitBtn.disabled = true;
-    submitBtn.textContent = "שומר...";
-    clearStatus(formCard);
+  // Filter buttons
+  let activeFilter = "";
+  let allVehiclePosts = [];
 
-    try {
-      const userInfo = DriveStore.getUserInfo();
-      // crypto.randomUUID() requires a secure context (HTTPS or localhost).
-      // GitHub Pages always serves over HTTPS, satisfying this requirement.
-      const post = {
-        id:        crypto.randomUUID(),
-        category:  catSelect.value,
-        content,
-        createdAt: Date.now(),
-        author: {
-          email: userInfo?.email || "",
-          name:  userInfo?.name  || "אנונימי",
-        },
-      };
-      await DriveStore.addVehiclePost(norm, post);
-      contentTA.value = "";
-      showStatus(formCard, "ההודעה פורסמה בהצלחה!", "success");
-      await loadPosts(norm); // refresh the list
-    } catch (err) {
-      console.error("addVehiclePost error:", err);
-      showStatus(formCard, `שגיאה בשמירה: ${err.message}`, "error");
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "פרסם";
-    }
+  document.querySelector(".filter-bar").addEventListener("click", (e) => {
+    const btn = e.target.closest(".filter-btn");
+    if (!btn) return;
+    document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    activeFilter = btn.dataset.cat;
+    applyFilter();
   });
 
+  function applyFilter() {
+    const section = document.getElementById("posts-section");
+    if (!section) return;
+    const filtered = activeFilter
+      ? allVehiclePosts.filter((p) => p.category === activeFilter)
+      : allVehiclePosts;
+    renderPostsList(section, filtered);
+  }
+
   // Load posts
-  await loadPosts(norm);
-}
-
-async function loadPosts(norm) {
-  const section = document.getElementById("posts-section");
-  if (!section) return;
-
-  section.innerHTML = `
-    <div class="loading-row">
-      <span class="spinner"></span>
-      <span>טוען פוסטים...</span>
-    </div>
-  `;
-
   try {
-    const posts = await DriveStore.getVehiclePosts(norm);
-    renderPostsList(section, posts, norm);
+    const all = await GithubStore.fetchAllPosts();
+    allVehiclePosts = GithubStore.getPostsForPlate(all, norm);
+    applyFilter();
   } catch (err) {
-    console.error("getVehiclePosts error:", err);
-    section.innerHTML = `<div class="status-msg status-error">שגיאה בטעינת פוסטים: ${escHtml(err.message)}</div>`;
+    const section = document.getElementById("posts-section");
+    if (section) {
+      section.innerHTML = `<div class="status-msg status-error">${escHtml(err.message)}</div>`;
+    }
   }
 }
 
-function renderPostsList(container, posts, norm) {
+function renderPostsList(container, posts) {
   if (!posts || posts.length === 0) {
     container.innerHTML = `
-      <div class="card" style="color:#888;text-align:center;padding:2rem;">
-        אין פוסטים עדיין. היה הראשון לפרסם!
+      <div class="empty-state">
+        אין הודעות עדיין לרכב זה. היה הראשון לפרסם!
       </div>
     `;
     return;
   }
+  container.innerHTML = `<div class="post-list">${posts.map(renderPostCard).join("")}</div>`;
+}
 
-  // Sort newest first (posts from Drive might be unordered from previous sessions)
-  const sorted = [...posts].sort((a, b) => b.createdAt - a.createdAt);
-  const currentUserEmail = DriveStore.getUserInfo()?.email;
-
-  const items = sorted.map((p) => {
-    const catLabel = CATEGORY_LABELS[p.category] || p.category;
-    const catClass = CATEGORY_CLASS[p.category] || "";
-    const canDelete = p.author?.email && p.author.email === currentUserEmail;
-
-    return `
-      <div class="post-item" data-category="${escHtml(p.category)}" data-post-id="${escHtml(p.id)}">
-        <div class="post-header">
-          <span class="category-badge ${catClass}">${escHtml(catLabel)}</span>
-          <span class="post-author">${escHtml(p.author?.name || "אנונימי")}</span>
-          <span class="post-date">${escHtml(formatDate(p.createdAt))}</span>
-          ${canDelete ? `<button class="btn btn-danger delete-post-btn" data-post-id="${escHtml(p.id)}"
-              style="padding:0.1rem 0.5rem;font-size:0.75rem;margin-inline-start:0.5rem;">מחק</button>` : ""}
-        </div>
-        <div class="post-content">${escHtml(p.content)}</div>
+function renderPostCard(post) {
+  const catLabel = CATEGORY_LABELS[post.category] || escHtml(post.category);
+  const catClass = CATEGORY_CLASS[post.category] || "";
+  // Render body as plain text (no HTML injection)
+  const bodyPreview = post.body
+    ? escHtml(post.body.slice(0, 300)) + (post.body.length > 300 ? "…" : "")
+    : "";
+  return `
+    <div class="post-item" data-category="${escHtml(post.category)}">
+      <div class="post-header">
+        <span class="category-badge ${catClass}">${catLabel}</span>
+        <a class="post-author" href="${escHtml(post.authorUrl)}" target="_blank"
+           rel="noopener noreferrer">@${escHtml(post.author)}</a>
+        <span class="post-date">${escHtml(formatDate(post.createdAt))}</span>
+        ${post.plate ? `<a class="plate-link" href="#/vehicle/${escHtml(post.plate)}"
+            title="עבור לדף הרכב">${escHtml(formatPlate(post.plate))}</a>` : ""}
       </div>
-    `;
-  }).join("");
-
-  container.innerHTML = `<div class="post-list">${items}</div>`;
-
-  // Wire up delete buttons
-  container.querySelectorAll(".delete-post-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      if (!confirm("האם למחוק פוסט זה?")) return;
-      btn.disabled = true;
-      try {
-        await DriveStore.deleteVehiclePost(norm, btn.dataset.postId);
-        await loadPosts(norm);
-      } catch (err) {
-        console.error("deleteVehiclePost error:", err);
-        alert(`שגיאה במחיקה: ${err.message}`);
-        btn.disabled = false;
-      }
-    });
-  });
+      ${post.title ? `<div class="post-title">${escHtml(post.title)}</div>` : ""}
+      ${bodyPreview ? `<div class="post-content">${bodyPreview}</div>` : ""}
+      <div class="post-footer">
+        <a href="${escHtml(post.url)}" target="_blank" rel="noopener noreferrer"
+           class="issue-link">פתח ב-GitHub ↗</a>
+      </div>
+    </div>
+  `;
 }
 
 // ── About Page ────────────────────────────────────────────────────────────
 
 function renderAbout() {
-  hideAuthGate();
-  elAppContent.innerHTML = `
+  elContent().innerHTML = `
     <h2 class="page-title">אודות</h2>
     <div class="card about-section">
       <h3>מה זה?</h3>
@@ -374,10 +309,35 @@ function renderAbout() {
         אזהרות, מחמאות ושאלות על מספרי לוחיות רישוי.
       </p>
 
+      <h3>איך לפרסם?</h3>
+      <ol>
+        <li>חפש את מספר הרישוי בעמוד הבית.</li>
+        <li>בדף הרכב לחץ על "כתוב הודעה" — ייפתח GitHub Issues עם טקסט מוכן מראש.</li>
+        <li>נדרש חשבון GitHub (חינמי). מלא את ההודעה ופרסם.</li>
+        <li>ההודעה תופיע לאחר רענון המטמון (עד שעה) או מיד בצפייה חיה.</li>
+      </ol>
+
+      <h3>פורמט מספר רישוי</h3>
+      <p>
+        ספרות בלבד, 5–8 ספרות. למשל: <code>1234567</code> או <code>12345678</code>.
+      </p>
+
       <h3>אחסון נתונים</h3>
       <p>
-        כל הפוסטים נשמרים ב-Google Drive שלך בתיקיית <strong>AdaniDB</strong>.
-        אין שרת מרכזי — הנתונים שלך שייכים לך בלבד.
+        כל ההודעות מאוחסנות כ-<strong>GitHub Issues</strong> ציבוריים במאגר זה.
+        הן גלויות לכל אחד. אין שרת מרכזי נוסף.
+      </p>
+
+      <h3>מודרציה</h3>
+      <p>
+        תוכן פוגעני או ספאם יוסרו על ידי סגירת ה-Issue ב-GitHub.
+        ניתן לדווח על תוכן בעייתי ישירות ב-GitHub.
+      </p>
+
+      <h3>פרטיות</h3>
+      <p>
+        מספרי הרישוי וההודעות הם <strong>מידע ציבורי</strong> ב-GitHub.
+        אין לפרסם מידע אישי מזהה. האפליקציה אינה אוספת נתונים.
       </p>
 
       <h3>הגבלות</h3>
@@ -385,133 +345,16 @@ function renderAbout() {
         <li>זהו דמו MVP — לא מוצר מסחרי.</li>
         <li>אין אינטגרציה רשמית עם רשות הרישוי / משרד התחבורה.</li>
         <li>המידע באפליקציה אינו מאומת ואינו בעל תוקף משפטי.</li>
-        <li>האפליקציה משתמשת ב-OAuth של Google; סביר שאת/ה מוגדר/ת כ"משתמש בדיקה".</li>
       </ul>
-
-      <h3>פרטיות</h3>
-      <p>
-        האפליקציה מבקשת גישה ל-Drive רק לתיקיית AdaniDB (scope: <code>drive.file</code>).
-        שם המשתמש והמייל שלך נשמרים כמחבר הפוסט בלבד ולא מועברים לשום גורם חיצוני.
-      </p>
     </div>
   `;
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-async function bootstrap() {
-  elAuthGate   = document.getElementById("auth-gate");
-  elAppContent = document.getElementById("app-content");
-  elUserInfo   = document.getElementById("user-info");
-  elUserName   = document.getElementById("user-name");
-  elUserAvatar = document.getElementById("user-avatar");
-  elSignoutBtn = document.getElementById("signout-btn");
-
-  // Validate config
-  if (!window.APP_CONFIG?.googleClientId ||
-      window.APP_CONFIG.googleClientId.includes("YOUR_CLIENT_ID")) {
-    elAppContent.hidden = true;
-    elAuthGate.innerHTML = `
-      <h2>⚙️ הגדרה נדרשת</h2>
-      <div class="status-msg status-error" style="max-width:480px;">
-        <strong>חסר קובץ docs/config.js</strong><br>
-        העתק את <code>docs/config.example.js</code> ל-<code>docs/config.js</code>
-        ומלא את ה-<code>googleClientId</code> שלך.<br><br>
-        ראה את ה-README להוראות מפורטות.
-      </div>
-    `;
-    elAuthGate.hidden = false;
-    return;
-  }
-
-  // Init Drive store
-  try {
-    DriveStore.init({ googleClientId: window.APP_CONFIG.googleClientId });
-  } catch (err) {
-    elAuthGate.innerHTML = `
-      <h2>שגיאת אתחול</h2>
-      <p class="status-msg status-error">${escHtml(err.message)}</p>
-    `;
-    elAuthGate.hidden = false;
-    return;
-  }
-
-  // Register callbacks
-  DriveStore.onSignIn((userInfo) => {
-    updateUserUI(userInfo);
-    initDbAndRoute();
-  });
-
-  DriveStore.onSignOut(() => {
-    showAuthGate();
-  });
-
-  // Sign-in button
-  document.getElementById("signin-btn").addEventListener("click", async () => {
-    const btn = document.getElementById("signin-btn");
-    btn.disabled = true;
-    btn.textContent = "מתחבר...";
-    clearStatus(elAuthGate);
-    try {
-      await DriveStore.signIn();
-      // onSignIn callback will handle the rest
-    } catch (err) {
-      console.error("Sign-in error:", err);
-      showStatus(elAuthGate, `שגיאת כניסה: ${err.message}`, "error");
-      btn.disabled = false;
-      btn.innerHTML = `<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-          alt="Google" width="18" height="18"> היכנס עם Google`;
-    }
-  });
-
-  // Sign-out button
-  elSignoutBtn.addEventListener("click", async () => {
-    await DriveStore.signOut();
-  });
-
-  // Nav links — about
-  document.getElementById("nav-about")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    navigate("/about");
-  });
-  document.getElementById("nav-home")?.addEventListener("click", (e) => {
-    e.preventDefault();
-    navigate("/");
-  });
-
-  // Hash routing
+function bootstrap() {
   window.addEventListener("hashchange", router);
-
-  // Initial render
-  showAuthGate();
-}
-
-async function initDbAndRoute() {
-  // Show a brief "initializing" message while we set up Drive folders
-  elAppContent.innerHTML = `
-    <div class="loading-row" style="justify-content:center;margin-top:3rem;">
-      <span class="spinner"></span>
-      <span>מאתחל את מסד הנתונים...</span>
-    </div>
-  `;
-  elAppContent.hidden = false;
-  elAuthGate.hidden   = true;
-
-  try {
-    await DriveStore.ensureDb();
-  } catch (err) {
-    console.error("ensureDb error:", err);
-    elAppContent.innerHTML = `
-      <div class="status-msg status-error" style="margin-top:2rem;">
-        שגיאה באתחול Drive: ${escHtml(err.message)}
-      </div>
-    `;
-    return;
-  }
-
   router();
 }
-
-// ── DOMContentLoaded ──────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", bootstrap);

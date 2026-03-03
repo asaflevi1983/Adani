@@ -1,10 +1,11 @@
 # 🚗 קיר חברתי לבעלי רכב — Car Owners Social Wall
 
-A fully client-side, static MVP web app that lets anyone post notices, warnings,
-compliments, or questions about a vehicle licence plate number.
-No custom backend — all data is stored in the user's own **Google Drive**.
+A fully static MVP web app that lets anyone post notices, warnings, compliments,
+or questions about a vehicle licence plate number.  
+**No backend. No external database. No OAuth setup.**  
+All posts are stored as **GitHub Issues** in this repository.
 
-> **Language:** Hebrew-first RTL UI | **Hosting:** GitHub Pages | **DB:** Google Drive (JSON files)
+> **Language:** Hebrew-first RTL UI | **Hosting:** GitHub Pages | **DB:** GitHub Issues
 
 ---
 
@@ -16,95 +17,63 @@ No custom backend — all data is stored in the user's own **Google Drive**.
 
 ## Features
 
-- 🔐 **Mandatory Google Sign-In gate** — search and post are blocked until authenticated
-- 📁 **Google Drive as DB** — one JSON file per plate inside `AdaniDB/vehicles/`
-- 🔍 **Search by plate** — normalized to digits only
-- 📝 **Post categories** — Notice / Warning / Compliment / Question (Hebrew)
-- 🗑️ **Delete your own posts**
-- 📱 **Responsive RTL layout**
+- 🔍 **Search by plate** — normalized to digits only (no sign-in needed)
+- 📝 **Post categories** — Notice / Warning / Compliment / Question
+- 🔗 **Post via GitHub Issues** — opens GitHub's New Issue page with prefilled content
+- ⚡ **Cached JSON feed** — GitHub Action generates `/data/posts.json` every hour
+- 📱 **Responsive RTL layout** — Hebrew-first
 - ⚡ **No build step** — plain HTML / CSS / JS
 
 ---
 
-## Setup Instructions
+## How Posting Works
 
-### 1. Create a Google Cloud Project
+1. Search for a plate on the home page.
+2. On the vehicle page click **"✏️ כתוב הודעה"** (Write a message).
+3. GitHub's New Issue page opens with a **prefilled title and labels**.
+4. You need a **free GitHub account**. Fill in your message and submit.
+5. The post appears in the app after the **cache refreshes** (up to 1 hour),
+   or immediately if the app falls back to the live API.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/).
-2. Click **"Select a project"** → **"New Project"** → give it a name → **Create**.
+### Title format (machine-readable)
 
-### 2. Enable the Google Drive API
+Every issue title **must** start with the plate prefix:
 
-1. In the left sidebar go to **"APIs & Services"** → **"Library"**.
-2. Search for **"Google Drive API"** and click **Enable**.
-
-### 3. Configure the OAuth Consent Screen
-
-1. Go to **"APIs & Services"** → **"OAuth consent screen"**.
-2. Choose **External** (unless you have a Google Workspace org).
-3. Fill in the required fields (app name, support email).
-4. Under **Scopes** add:
-   - `https://www.googleapis.com/auth/drive.file`
-5. Under **Test users** add your own Google account (and any other testers).
-6. Save and continue.
-
-> ⚠️ **Security note:** Keep the app in "Testing" mode and limit to known test users
-> until you have completed a Google verification review (required for production).
-
-### 4. Create an OAuth 2.0 Client ID
-
-1. Go to **"APIs & Services"** → **"Credentials"** → **"Create Credentials"** → **"OAuth client ID"**.
-2. Application type: **Web application**.
-3. Under **Authorized JavaScript origins** add:
-   ```
-   http://localhost:8080
-   https://<your-github-username>.github.io
-   ```
-4. Click **Create**. Copy the **Client ID**.
-
-### 5. Create `docs/config.js`
-
-```bash
-cp docs/config.example.js docs/config.js
+```
+[PLATE:1234567] Short description of the message
 ```
 
-Edit `docs/config.js` and replace `YOUR_CLIENT_ID_HERE.apps.googleusercontent.com`
-with the Client ID you just copied:
+The app parses the plate from this prefix. Issues without this prefix are ignored.
 
-```js
-window.APP_CONFIG = {
-  googleClientId: "123456789-abc.apps.googleusercontent.com",
-};
-```
+### Labels
 
-> ⚠️ `docs/config.js` is listed in `.gitignore` — **never commit it**.
+Category labels must be applied to each issue:
+
+| Label              | Meaning     |
+|--------------------|-------------|
+| `category:notice`     | הודעה — General notice |
+| `category:warning`    | אזהרה — Warning |
+| `category:compliment` | מחמאה — Compliment |
+| `category:question`   | שאלה — Question |
+
+Create these labels in **Settings → Labels** before the app will show them correctly.
 
 ---
 
-## Run Locally
+## Plate Format
 
-You need a simple static server (browsers block file:// for some APIs).
-
-**Using Python (built-in):**
-```bash
-cd docs
-python3 -m http.server 8080
-```
-Then open [http://localhost:8080](http://localhost:8080).
-
-**Using Node.js (`serve`):**
-```bash
-npx serve docs -p 8080
-```
+- **Digits only**, 5–8 characters.
+- Israeli plates: 7 digits (old format `123-45-67`) or 8 digits (new format `123-456-78`).
+- The app normalizes any input to digits before searching or linking.
 
 ---
 
-## Deploy to GitHub Pages
+## GitHub Pages Deployment
 
-### One-time setup (repository settings)
+### One-time setup
 
 1. Go to your repository on GitHub.
-2. **Settings** → **Pages**.
+2. **Settings → Pages**.
 3. Under **Source** select **"GitHub Actions"**.
 
 ### Deploy
@@ -112,13 +81,30 @@ npx serve docs -p 8080
 Push to `main` — the included workflow (`.github/workflows/pages.yml`) will
 automatically deploy the `docs/` folder to GitHub Pages.
 
-You can also trigger it manually:
-**Actions** → **"Deploy to GitHub Pages"** → **"Run workflow"**.
+You can also trigger it manually:  
+**Actions → "Deploy to GitHub Pages" → "Run workflow"**.
 
-> **Note:** `docs/config.js` is gitignored and will NOT be included in the deployment.
-> For a public deployment you will need an alternative approach to inject the Client ID
-> (e.g., a build step that reads a GitHub Secret). For a private/test deployment,
-> you can temporarily commit `config.js` to a **private** repo only.
+---
+
+## Posts Cache (GitHub Action)
+
+`.github/workflows/generate-posts-json.yml` runs:
+
+- On a **schedule** (every hour)
+- When an **issue is opened, edited, labeled, or closed**
+- Manually via **workflow_dispatch**
+
+It fetches all open issues, parses them, and commits `docs/data/posts.json` to `main`.
+The frontend reads this file first (fast, no API calls). If the file is missing or empty,
+it falls back to the live GitHub API.
+
+---
+
+## Moderation
+
+- Close a GitHub Issue to remove a post from the app (next cache refresh).
+- Delete or lock issues via GitHub's issue interface.
+- Users can report issues directly on GitHub.
 
 ---
 
@@ -129,44 +115,18 @@ Adani/
 ├── docs/
 │   ├── index.html          ← App shell (RTL Hebrew UI)
 │   ├── app.js              ← Hash router + UI controllers
-│   ├── driveStore.js       ← Google Drive auth + CRUD
+│   ├── githubStore.js      ← GitHub Issues API fetch + parsing
 │   ├── styles.css          ← Responsive RTL styles
-│   ├── config.example.js   ← Config template (commit this)
-│   └── config.js           ← Your secrets (gitignored, DO NOT commit)
+│   └── data/
+│       └── posts.json      ← Cached posts (generated by workflow)
 ├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   │   └── message.yml     ← GitHub issue form template
 │   └── workflows/
-│       └── pages.yml       ← GitHub Pages deploy workflow
+│       ├── pages.yml                ← GitHub Pages deploy workflow
+│       └── generate-posts-json.yml ← Posts cache generation workflow
 ├── .gitignore
 └── README.md
-```
-
----
-
-## Google Drive Data Layout
-
-```
-My Drive/
-└── AdaniDB/
-    └── vehicles/
-        ├── 1234567.json
-        ├── 9876543.json
-        └── ...
-```
-
-Each file contains:
-```json
-{
-  "plate": "1234567",
-  "posts": [
-    {
-      "id": "uuid",
-      "category": "warning",
-      "content": "חנה במקום אסור",
-      "createdAt": 1710000000000,
-      "author": { "email": "user@example.com", "name": "ישראל ישראלי" }
-    }
-  ]
-}
 ```
 
 ---
@@ -175,16 +135,30 @@ Each file contains:
 
 | Hash | Page |
 |------|------|
-| `#/` | Home / plate search |
-| `#/vehicle/<plate>` | Vehicle posts + new post form |
+| `#/` | Home / plate search + recent posts |
+| `#/vehicle/<plate>` | Vehicle posts + write message button |
 | `#/about` | About / disclaimers |
 
 ---
 
-## Disclaimers
+## Privacy & Disclaimer
 
+- **All posts are public** — stored as GitHub Issues, visible to anyone.
+- **Do not post personal identifying information** without consent.
 - This is a **demo MVP** — not a production product.
-- **No official Ministry of Transport integration.** Plate numbers are not verified.
-- Content stored in the **user's own Drive** — no central server.
-- The app uses `drive.file` scope (access only to files it created).
+- No official Ministry of Transport integration. Plate numbers are not verified.
+- Content is not legally binding and is subject to GitHub's Terms of Service.
+- Moderation is done by closing/deleting GitHub Issues.
 
+---
+
+## Required Labels Setup
+
+Create these labels in your repository (**Issues → Labels → New label**):
+
+| Name | Color suggestion | Description |
+|------|-----------------|-------------|
+| `category:notice`     | `#1a73e8` (blue)   | הודעה |
+| `category:warning`    | `#f9a825` (yellow) | אזהרה |
+| `category:compliment` | `#34a853` (green)  | מחמאה |
+| `category:question`   | `#9c27b0` (purple) | שאלה |
