@@ -1,0 +1,88 @@
+name: Generate posts.json cache
+
+on:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+  issues:
+    types: [opened, edited, labeled, unlabeled, closed, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch issues and generate posts.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Fetch open issues (up to 100), save to a temp file
+          # NOTE: GitHub API returns max 100 per page. If the repo has >100 open
+          # issues with valid PLATE: prefixes, older ones will be excluded from
+          # the cache (they remain accessible via the live API fallback).
+          curl -s \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${GH_REPO}/issues?state=open&per_page=100&sort=created&direction=desc" \
+            > /tmp/issues.json
+
+          # Parse and normalize with Node.js
+          node << 'NODE_EOF'
+          const fs = require("fs");
+          const issues = JSON.parse(fs.readFileSync("/tmp/issues.json", "utf8"));
+
+          function parsePlateFromTitle(title) {
+            const m = String(title).match(/^\[PLATE:(\d+)\]/i);
+            return m ? m[1] : null;
+          }
+
+          function parseCategoryFromLabels(labels) {
+            if (!Array.isArray(labels)) return "notice";
+            for (const lbl of labels) {
+              const name = lbl && lbl.name;
+              if (name && name.startsWith("category:")) {
+                return name.slice("category:".length);
+              }
+            }
+            return "notice";
+          }
+
+          function parseTitleSummary(title) {
+            return String(title).replace(/^\[PLATE:\d+\]\s*/i, "").trim();
+          }
+
+          const posts = issues
+            .filter(i => !i.pull_request)
+            .map(i => ({
+              id:        i.number,
+              url:       i.html_url,
+              plate:     parsePlateFromTitle(i.title || ""),
+              category:  parseCategoryFromLabels(i.labels || []),
+              title:     parseTitleSummary(i.title || ""),
+              body:      i.body || "",
+              author:    i.user ? i.user.login : "",
+              authorUrl: i.user ? `https://github.com/${i.user.login}` : "#",
+              createdAt: i.created_at || "",
+            }))
+            .filter(p => p.plate);
+
+          fs.writeFileSync("docs/data/posts.json", JSON.stringify(posts, null, 2) + "\n");
+          console.log(`Written ${posts.length} posts to docs/data/posts.json`);
+          NODE_EOF
+
+      - name: Commit updated posts.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/posts.json
+          # Only commit if there are changes
+          git diff --cached --quiet || git commit -m "chore: update posts.json cache [skip ci]"
+          git push

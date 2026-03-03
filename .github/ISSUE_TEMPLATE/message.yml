@@ -1,0 +1,57 @@
+name: הודעה על רכב
+description: פרסם הודעה, אזהרה, מחמאה או שאלה על מספר לוחית רישוי
+title: "[PLATE:] "
+labels: []
+body:
+  - type: input
+    id: plate
+    attributes:
+      label: מספר לוחית רישוי
+      description: ספרות בלבד (5–8 ספרות). לדוגמה 1234567
+      placeholder: "1234567"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: קטגוריה
+      description: בחר את סוג ההודעה
+      options:
+        - "notice — הודעה"
+        - "warning — אזהרה"
+        - "compliment — מחמאה"
+        - "question — שאלה"
+    validations:
+      required: true
+
+  - type: textarea
+    id: message
+    attributes:
+      label: תוכן ההודעה
+      description: כתוב את ההודעה שלך כאן
+      placeholder: "כתוב כאן..."
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: מיקום (אופציונלי)
+      placeholder: "לדוגמה: תל אביב, רחוב הרצל"
+
+  - type: input
+    id: date
+    attributes:
+      label: תאריך האירוע (אופציונלי)
+      placeholder: "לדוגמה: 01/01/2025"
+
+  - type: checkboxes
+    id: disclaimer
+    attributes:
+      label: הצהרה
+      options:
+        - label: >
+            אני מבין/ה שההודעה היא **מידע ציבורי** ב-GitHub ותהיה גלויה לכולם.
+            אין לפרסם מידע אישי מזהה ללא הסכמה.
+          required: true
