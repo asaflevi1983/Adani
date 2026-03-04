@@ -2,6 +2,8 @@
  * app.js
  * Hash-based router and UI controllers for the Car Owners Social Wall.
  *
+ * Data is read from a public Google Sheet via SheetsStore.
+ *
  * Routes:
  *   /#/                  → Home / plate search + recent posts
  *   /#/vehicle/<plate>   → Vehicle posts page
@@ -212,7 +214,7 @@ async function loadRecentPosts() {
   const section = document.getElementById("recent-posts");
   if (!section) return;
   try {
-    const all = await GithubStore.fetchAllPosts();
+    const all = await SheetsStore.fetchAllPosts();
     // Show the 10 most recent posts across all plates
     const recent = all.slice(0, RECENT_POSTS_LIMIT);
     if (!recent.length) {
@@ -242,35 +244,6 @@ async function renderVehicle(rawPlate) {
       <h2 class="page-title" style="margin-bottom:0;">הודעות על הרכב</h2>
     </div>
 
-    <div class="card write-cta">
-      <p>יש לך מה להגיד על הרכב הזה? מלא את הפרטים למטה ופרסם הודעה.</p>
-      <form id="post-form" class="post-form" novalidate>
-        <div class="form-group">
-          <label for="post-category">קטגוריה</label>
-          <select id="post-category" name="category" required>
-            <option value="notice">הודעה</option>
-            <option value="warning">אזהרה</option>
-            <option value="compliment">מחמאה</option>
-            <option value="question">שאלה</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="post-title">כותרת</label>
-          <input type="text" id="post-title" name="title" maxlength="120"
-                 placeholder="תיאור קצר…" required autocomplete="off">
-          <span class="field-error" id="post-title-error" hidden></span>
-        </div>
-        <div class="form-group">
-          <label for="post-body">תוכן ההודעה</label>
-          <textarea id="post-body" name="body" rows="4" maxlength="2000"
-                    placeholder="כתוב את ההודעה שלך כאן…" required></textarea>
-          <span class="field-error" id="post-body-error" hidden></span>
-        </div>
-        <div id="post-form-status" class="status-msg" hidden></div>
-        <button type="submit" class="btn btn-primary">✏️ פרסם הודעה</button>
-      </form>
-    </div>
-
     <div class="filter-bar">
       <span>סינון לפי קטגוריה:</span>
       <button class="filter-btn active" data-cat="">הכל</button>
@@ -287,41 +260,6 @@ async function renderVehicle(rawPlate) {
       </div>
     </div>
   `;
-
-  // Wire up the post form
-  const postForm       = document.getElementById("post-form");
-  const titleInput     = document.getElementById("post-title");
-  const bodyInput      = document.getElementById("post-body");
-  const titleErr       = document.getElementById("post-title-error");
-  const bodyErr        = document.getElementById("post-body-error");
-  const formStatus     = document.getElementById("post-form-status");
-
-  postForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    let valid = true;
-
-    titleErr.hidden   = true;
-    bodyErr.hidden    = true;
-    formStatus.hidden = true;
-
-    const category = document.getElementById("post-category").value;
-    const title    = titleInput.value.trim();
-    const body     = bodyInput.value.trim();
-
-    if (!title) {
-      titleErr.textContent = "נא להזין כותרת.";
-      titleErr.hidden = false;
-      valid = false;
-    }
-    if (!body) {
-      bodyErr.textContent = "נא להזין תוכן הודעה.";
-      bodyErr.hidden = false;
-      valid = false;
-    }
-    if (!valid) return;
-
-    showPostConfirmModal(norm, category, title, body, postForm, formStatus);
-  });
 
   // Filter buttons
   let activeFilter = "";
@@ -347,8 +285,8 @@ async function renderVehicle(rawPlate) {
 
   // Load posts
   try {
-    const all = await GithubStore.fetchAllPosts();
-    allVehiclePosts = GithubStore.getPostsForPlate(all, norm);
+    const all = await SheetsStore.fetchAllPosts();
+    allVehiclePosts = SheetsStore.getPostsForPlate(all, norm);
     applyFilter();
   } catch (err) {
     const section = document.getElementById("posts-section");
@@ -377,12 +315,14 @@ function renderPostCard(post) {
   const bodyPreview = post.body
     ? escHtml(post.body.slice(0, BODY_PREVIEW_LENGTH)) + (post.body.length > BODY_PREVIEW_LENGTH ? "…" : "")
     : "";
+  const authorHtml = post.author
+    ? `<span class="post-author">${escHtml(post.author)}</span>`
+    : "";
   return `
     <div class="post-item" data-category="${escHtml(post.category)}">
       <div class="post-header">
         <span class="category-badge ${catClass}">${catLabel}</span>
-        <a class="post-author" href="${escHtml(post.authorUrl)}" target="_blank"
-           rel="noopener noreferrer">@${escHtml(post.author)}</a>
+        ${authorHtml}
         <span class="post-date">${escHtml(formatDate(post.createdAt))}</span>
         ${post.plate ? `<a class="plate-link" href="#/vehicle/${escHtml(post.plate)}"
             title="עבור לדף הרכב">${escHtml(formatPlate(post.plate))}</a>` : ""}
@@ -393,63 +333,6 @@ function renderPostCard(post) {
   `;
 }
 
-// ── Post Confirm Modal ────────────────────────────────────────────────────
-
-/**
- * Show a confirmation modal previewing the post and offering a link to
- * open the pre-filled GitHub New Issue page in a new tab.
- */
-function showPostConfirmModal(plate, category, title, body, formEl, statusEl) {
-  const catLabel = CATEGORY_LABELS[category] || escHtml(category);
-  const catClass = CATEGORY_CLASS[category] || "";
-  const issueUrl = GithubStore.buildNewIssueUrl(plate, category, title, body);
-  const bodyPreview = escHtml(body.slice(0, BODY_PREVIEW_LENGTH)) +
-    (body.length > BODY_PREVIEW_LENGTH ? "…" : "");
-
-  const modal = document.createElement("div");
-  modal.className = "modal-overlay";
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-modal", "true");
-  modal.innerHTML = `
-    <div class="modal-box card">
-      <h3 class="modal-title">אישור פרסום הודעה</h3>
-      <div class="post-item" data-category="${escHtml(category)}">
-        <div class="post-header">
-          <span class="category-badge ${catClass}">${catLabel}</span>
-        </div>
-        <div class="post-title">${escHtml(title)}</div>
-        <div class="post-content">${bodyPreview}</div>
-      </div>
-      <p class="modal-note">
-        ההודעה תפורסם כ-Issue ב-GitHub. לחיצה על "פרסם ב-GitHub" תפתח את דף GitHub לאישור סופי.
-        <br><small>נדרש חשבון GitHub כדי לפרסם.</small>
-      </p>
-      <div class="modal-actions">
-        <a href="${escHtml(issueUrl)}" target="_blank" rel="noopener noreferrer"
-           class="btn btn-primary" id="modal-confirm-btn">✏️ פרסם ב-GitHub</a>
-        <button class="btn btn-secondary" id="modal-cancel-btn">ביטול</button>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-
-  function closeModal() { modal.remove(); }
-
-  modal.querySelector("#modal-confirm-btn").addEventListener("click", () => {
-    closeModal();
-    statusEl.textContent = "תודה! ההודעה תפורסם לאחר שתאשר אותה ב-GitHub.";
-    statusEl.className   = "status-msg status-success";
-    statusEl.hidden      = false;
-    formEl.reset();
-  });
-
-  modal.querySelector("#modal-cancel-btn").addEventListener("click", closeModal);
-
-  // Close on overlay click
-  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
-}
-
 // ── About Page ────────────────────────────────────────────────────────────
 
 function renderAbout() {
@@ -458,16 +341,9 @@ function renderAbout() {
     <div class="card about-section">
       <h3>מה זה?</h3>
       <p>
-        "קיר חברתי לבעלי רכב" — אפליקציה המאפשרת לציבור לפרסם הודעות,
+        "קיר חברתי לבעלי רכב" — אפליקציה המאפשרת לציבור לצפות בהודעות,
         אזהרות, מחמאות ושאלות על מספרי לוחיות רישוי.
       </p>
-
-      <h3>איך לפרסם?</h3>
-      <ol>
-        <li>חפש את מספר הרישוי בעמוד הבית.</li>
-        <li>בדף הרכב מלא את טופס ה"פרסם הודעה" ולחץ שלח.</li>
-        <li>ההודעה תופיע לאחר בדיקה ואישור.</li>
-      </ol>
 
       <h3>פורמט מספר רישוי</h3>
       <p>
@@ -476,7 +352,7 @@ function renderAbout() {
 
       <h3>אחסון נתונים</h3>
       <p>
-        כל ההודעות מאוחסנות ומנוהלות בשרת. הן גלויות לכל אחד לאחר אישור.
+        כל ההודעות מאוחסנות בגיליון נתונים ציבורי. הן גלויות לכל אחד.
       </p>
 
       <h3>מודרציה</h3>
