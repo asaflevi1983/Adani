@@ -2,7 +2,7 @@
  * app.js
  * Hash-based router and UI controllers for the Car Owners Social Wall.
  *
- * Data is read from a public Google Sheet via SheetsStore.
+ * Data is read and written via GasStore (Google Apps Script Web App API).
  *
  * Routes:
  *   /#/                  → Home / plate search + recent posts
@@ -14,7 +14,6 @@
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-const RECENT_POSTS_LIMIT  = 10;
 const BODY_PREVIEW_LENGTH = 300;
 
 const CATEGORY_LABELS = {
@@ -141,8 +140,8 @@ function renderHome() {
 
   function doSearch() {
     const norm = normalizePlate(input.value);
-    if (norm.length < 5 || norm.length > 8) {
-      errSpan.textContent = "מספר רישוי חייב להכיל 5–8 ספרות.";
+    if (norm.length !== 7 && norm.length !== 8) {
+      errSpan.textContent = "מספר רישוי ישראלי חייב להכיל 7 או 8 ספרות.";
       errSpan.hidden = false;
       input.focus();
       return;
@@ -213,10 +212,12 @@ async function runPlateOCR(file, inputEl, errSpan, statusEl) {
 async function loadRecentPosts() {
   const section = document.getElementById("recent-posts");
   if (!section) return;
+  if (!GasStore.isConfigured()) {
+    section.innerHTML = `<div class="status-msg status-warning">הגדרת ה-API חסרה. ראה <code>gasStore.js</code>.</div>`;
+    return;
+  }
   try {
-    const all = await SheetsStore.fetchAllPosts();
-    // Show the 10 most recent posts across all plates
-    const recent = all.slice(0, RECENT_POSTS_LIMIT);
+    const recent = await GasStore.fetchRecentPosts();
     if (!recent.length) {
       section.innerHTML = `<div class="empty-state">אין פוסטים עדיין.</div>`;
       return;
@@ -231,7 +232,7 @@ async function loadRecentPosts() {
 
 async function renderVehicle(rawPlate) {
   const norm = normalizePlate(rawPlate);
-  if (norm.length < 5 || norm.length > 8) {
+  if (norm.length !== 7 && norm.length !== 8) {
     navigate("/");
     return;
   }
@@ -242,6 +243,30 @@ async function renderVehicle(rawPlate) {
     <div class="card">
       <div class="plate-display" dir="ltr">${escHtml(formatPlate(norm))}</div>
       <h2 class="page-title" style="margin-bottom:0;">הודעות על הרכב</h2>
+    </div>
+
+    <div class="card post-form">
+      <h3 class="modal-title">כתוב הודעה על הרכב הזה</h3>
+      <div class="form-group">
+        <label for="post-category">קטגוריה</label>
+        <select id="post-category">
+          <option value="notice">הודעה</option>
+          <option value="warning">אזהרה</option>
+          <option value="compliment">מחמאה</option>
+          <option value="question">שאלה</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="post-content">תוכן ההודעה</label>
+        <textarea id="post-content" placeholder="כתוב את ההודעה שלך כאן..." rows="4" maxlength="1000"></textarea>
+        <span class="field-error" id="content-error" hidden></span>
+      </div>
+      <div class="form-group">
+        <label for="post-author">שם / כינוי (אופציונלי)</label>
+        <input type="text" id="post-author" placeholder="שם / כינוי" maxlength="100">
+      </div>
+      <div id="post-status" class="status-msg" hidden></div>
+      <button class="btn btn-primary" id="submit-post-btn">שלח הודעה</button>
     </div>
 
     <div class="filter-bar">
@@ -261,7 +286,50 @@ async function renderVehicle(rawPlate) {
     </div>
   `;
 
-  // Filter buttons
+  // ── Post form ────────────────────────────────────────────────────────────
+
+  const submitBtn   = document.getElementById("submit-post-btn");
+  const contentArea = document.getElementById("post-content");
+  const contentErr  = document.getElementById("content-error");
+  const postStatus  = document.getElementById("post-status");
+
+  submitBtn.addEventListener("click", async () => {
+    const content  = contentArea.value.trim();
+    const category = document.getElementById("post-category").value;
+    const author   = document.getElementById("post-author").value.trim();
+
+    contentErr.hidden = true;
+    if (!content) {
+      contentErr.textContent = "יש להזין תוכן להודעה.";
+      contentErr.hidden = false;
+      contentArea.focus();
+      return;
+    }
+
+    submitBtn.disabled = true;
+    postStatus.textContent = "שולח הודעה...";
+    postStatus.className   = "status-msg status-info";
+    postStatus.hidden      = false;
+
+    try {
+      await GasStore.submitPost(norm, category, content, author);
+      contentArea.value = "";
+      document.getElementById("post-author").value = "";
+      postStatus.textContent = "ההודעה נשלחה בהצלחה!";
+      postStatus.className   = "status-msg status-success";
+      // Reload the posts list
+      allVehiclePosts = await GasStore.fetchPostsForPlate(norm);
+      applyFilter();
+    } catch (err) {
+      postStatus.textContent = escHtml(err.message);
+      postStatus.className   = "status-msg status-error";
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  // ── Filter buttons ────────────────────────────────────────────────────────
+
   let activeFilter = "";
   let allVehiclePosts = [];
 
@@ -283,10 +351,10 @@ async function renderVehicle(rawPlate) {
     renderPostsList(section, filtered);
   }
 
-  // Load posts
+  // ── Load posts ────────────────────────────────────────────────────────────
+
   try {
-    const all = await SheetsStore.fetchAllPosts();
-    allVehiclePosts = SheetsStore.getPostsForPlate(all, norm);
+    allVehiclePosts = await GasStore.fetchPostsForPlate(norm);
     applyFilter();
   } catch (err) {
     const section = document.getElementById("posts-section");
@@ -311,9 +379,8 @@ function renderPostsList(container, posts) {
 function renderPostCard(post) {
   const catLabel = CATEGORY_LABELS[post.category] || escHtml(post.category);
   const catClass = CATEGORY_CLASS[post.category] || "";
-  // Render body as plain text (no HTML injection)
-  const bodyPreview = post.body
-    ? escHtml(post.body.slice(0, BODY_PREVIEW_LENGTH)) + (post.body.length > BODY_PREVIEW_LENGTH ? "…" : "")
+  const bodyPreview = post.content
+    ? escHtml(post.content.slice(0, BODY_PREVIEW_LENGTH)) + (post.content.length > BODY_PREVIEW_LENGTH ? "…" : "")
     : "";
   const authorHtml = post.author
     ? `<span class="post-author">${escHtml(post.author)}</span>`
@@ -327,7 +394,6 @@ function renderPostCard(post) {
         ${post.plate ? `<a class="plate-link" href="#/vehicle/${escHtml(post.plate)}"
             title="עבור לדף הרכב">${escHtml(formatPlate(post.plate))}</a>` : ""}
       </div>
-      ${post.title ? `<div class="post-title">${escHtml(post.title)}</div>` : ""}
       ${bodyPreview ? `<div class="post-content">${bodyPreview}</div>` : ""}
     </div>
   `;
@@ -347,7 +413,7 @@ function renderAbout() {
 
       <h3>פורמט מספר רישוי</h3>
       <p>
-        ספרות בלבד, 5–8 ספרות. למשל: <code>1234567</code> או <code>12345678</code>.
+        ספרות בלבד, 7 או 8 ספרות. למשל: <code>1234567</code> או <code>12345678</code>.
       </p>
 
       <h3>אחסון נתונים</h3>
