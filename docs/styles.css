@@ -239,9 +239,7 @@ h3.section-title {
 .post-author {
   font-size: 0.82rem;
   color: #1a73e8;
-  text-decoration: none;
 }
-.post-author:hover { text-decoration: underline; }
 
 .post-date  { font-size: 0.78rem; color: #999; }
 .post-title { font-weight: 700; font-size: 0.97rem; margin-bottom: 0.3rem; }
